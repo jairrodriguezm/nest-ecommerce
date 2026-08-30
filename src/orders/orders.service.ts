@@ -1,10 +1,11 @@
 import { Injectable, NotFoundException, BadRequestException, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager';
 import { Order, OrderStatus } from './order.entity';
 import { OrderItem } from './order-item.entity';
+import { Product } from '../products/product.entity';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UsersService } from '../users/users.service';
 import { ProductsService } from '../products/products.service';
@@ -32,6 +33,7 @@ export class OrdersService {
     private orderItemsRepository: Repository<OrderItem>,
     private usersService: UsersService,
     private productsService: ProductsService,
+    private dataSource: DataSource,
     @Inject(CACHE_MANAGER)
     private cacheManager: Cache,
   ) {}
@@ -62,37 +64,49 @@ export class OrdersService {
 
   async create(createOrderDto: CreateOrderDto): Promise<Order> {
     const user = await this.usersService.findOne(createOrderDto.userId);
-    
-    const order = this.ordersRepository.create({
-      userId: user.id,
-      status: OrderStatus.PENDING,
-    });
-    const savedOrder = await this.ordersRepository.save(order);
-    
-    let total = 0;
-    for (const itemDto of createOrderDto.items) {
-      const product = await this.productsService.findOne(itemDto.productId);
-      
-      if (product.stock < itemDto.quantity) {
-        throw new BadRequestException(`Not enough stock for ${product.name}`);
-      }
-      
-      const orderItem = this.orderItemsRepository.create({
-        orderId: savedOrder.id,
-        productId: product.id,
-        quantity: itemDto.quantity,
-        price: product.price,
+
+    const savedOrderId = await this.dataSource.transaction(async (manager) => {
+      const order = manager.create(Order, {
+        userId: user.id,
+        status: OrderStatus.PENDING,
+        total: 0,
       });
-      
-      await this.orderItemsRepository.save(orderItem);
-      total += product.price * itemDto.quantity;
-      await this.productsService.updateStock(product.id, product.stock - itemDto.quantity);
-    }
-    
-    savedOrder.total = total;
-    await this.ordersRepository.save(savedOrder);
-    
-    return this.findOne(savedOrder.id);
+      const savedOrder = await manager.save(Order, order);
+
+      let total = 0;
+      for (const itemDto of createOrderDto.items) {
+        const product = await manager.findOne(Product, {
+          where: { id: itemDto.productId },
+        });
+
+        if (!product) {
+          throw new NotFoundException(`Product #${itemDto.productId} not found`);
+        }
+
+        if (product.stock < itemDto.quantity) {
+          throw new BadRequestException(`Not enough stock for ${product.name}`);
+        }
+
+        const orderItem = manager.create(OrderItem, {
+          orderId: savedOrder.id,
+          productId: product.id,
+          quantity: itemDto.quantity,
+          price: product.price,
+        });
+
+        await manager.save(OrderItem, orderItem);
+        total += Number(product.price) * itemDto.quantity;
+
+        product.stock -= itemDto.quantity;
+        await manager.save(Product, product);
+      }
+
+      savedOrder.total = total;
+      await manager.save(Order, savedOrder);
+      return savedOrder.id;
+    });
+
+    return this.findOne(savedOrderId);
   }
 
   async updateStatus(id: number, status: OrderStatus): Promise<Order> {
@@ -125,18 +139,25 @@ export class OrdersService {
 
   async cancel(id: number): Promise<Order> {
     const order = await this.findOne(id);
-    
+
     if (order.status !== OrderStatus.PENDING) {
       throw new BadRequestException('Only pending orders can be cancelled');
     }
-    
-    for (const item of order.items) {
-      const product = await this.productsService.findOne(item.productId);
-      await this.productsService.updateStock(product.id, product.stock + item.quantity);
-    }
-    
-    order.status = OrderStatus.CANCELLED;
-    return this.ordersRepository.save(order);
+
+    return this.dataSource.transaction(async (manager) => {
+      for (const item of order.items) {
+        const product = await manager.findOne(Product, {
+          where: { id: item.productId },
+        });
+        if (product) {
+          product.stock += item.quantity;
+          await manager.save(Product, product);
+        }
+      }
+
+      order.status = OrderStatus.CANCELLED;
+      return manager.save(Order, order);
+    });
   }
 
   async getOrderWithFullDetails(id: number): Promise<any> {
