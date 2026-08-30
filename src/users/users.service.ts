@@ -31,6 +31,9 @@ export class UsersService {
     const cacheKey = `user:${id}`;
     const cached = await this.cacheManager.get<User>(cacheKey);
     if (cached) {
+      if (cached.createdAt) {
+        cached.createdAt = new Date(cached.createdAt);
+      }
       return cached;
     }
 
