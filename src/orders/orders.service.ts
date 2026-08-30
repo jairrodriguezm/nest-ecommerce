@@ -86,7 +86,7 @@ export class OrdersService {
       
       await this.orderItemsRepository.save(orderItem);
       total += product.price * itemDto.quantity;
-      this.productsService.updateStock(product.id, product.stock - itemDto.quantity);
+      await this.productsService.updateStock(product.id, product.stock - itemDto.quantity);
     }
     
     savedOrder.total = total;
