@@ -2,6 +2,7 @@ import { Controller, Get, Post, Patch, Body, Param, ParseIntPipe, Query, BadRequ
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { OrderStatus } from './order.entity';
+import { UpdateStatusDto } from './dto/update-status.dto';
 
 @Controller('orders')
 export class OrdersController {
@@ -42,9 +43,9 @@ export class OrdersController {
   @Patch(':id/status')
   updateStatus(
     @Param('id', ParseIntPipe) id: number,
-    @Body('status') status: OrderStatus,
+    @Body() updateStatusDto: UpdateStatusDto,
   ) {
-    return this.ordersService.updateStatus(id, status);
+    return this.ordersService.updateStatus(id, updateStatusDto.status);
   }
 
   @Post(':id/cancel')
