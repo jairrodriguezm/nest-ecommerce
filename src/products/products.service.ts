@@ -98,12 +98,10 @@ export class ProductsService {
       children: [],
     };
 
-    if (category.parentId) {
-      tree.parent = this.buildCategoryTree(category.parent);
-    }
-
     if (category.children && category.children.length > 0) {
-      tree.children = category.children.map(child => this.buildCategoryTree(child));
+      tree.children = category.children.map((child) =>
+        this.buildCategoryTree(child),
+      );
     }
 
     return tree;
