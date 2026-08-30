@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Body, Param, ParseIntPipe, Query } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Body, Param, ParseIntPipe, Query, BadRequestException } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { OrderStatus } from './order.entity';
@@ -10,7 +10,11 @@ export class OrdersController {
   @Get()
   findAll(@Query('userId') userId?: string) {
     if (userId) {
-      return this.ordersService.findByUser(parseInt(userId, 10));
+      const parsedId = parseInt(userId, 10);
+      if (isNaN(parsedId)) {
+        throw new BadRequestException('userId must be a valid number');
+      }
+      return this.ordersService.findByUser(parsedId);
     }
     return this.ordersService.findAll();
   }
