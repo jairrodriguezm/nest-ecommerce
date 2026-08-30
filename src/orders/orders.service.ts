@@ -117,6 +117,10 @@ export class OrdersService {
 
   async processPayment(orderId: number): Promise<{ success: boolean; transactionId: string }> {
     const order = await this.findOne(orderId);
+
+    if (order.status !== OrderStatus.PENDING) {
+      throw new BadRequestException(`Cannot pay for order with status ${order.status}`);
+    }
     
     let lastError: Error;
     for (let attempt = 0; attempt < this.maxRetries; attempt++) {
