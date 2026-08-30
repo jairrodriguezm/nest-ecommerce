@@ -51,8 +51,8 @@ export class UsersService {
   }
 
   async remove(id: number): Promise<void> {
-    const user = await this.findOne(id);
-    await this.usersRepository.remove(user);
+    await this.findOne(id);
+    await this.usersRepository.delete(id);
     await this.cacheManager.del('users:all');
     await this.cacheManager.del(`user:${id}`);
   }
