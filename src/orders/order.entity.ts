@@ -21,7 +21,7 @@ export class Order {
   @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
   total: number;
 
-  @ManyToOne(() => User, (user) => user.orders, { eager: true })
+  @ManyToOne(() => User, (user) => user.orders, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'user_id' })
   user: User;
 
