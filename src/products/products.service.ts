@@ -112,23 +112,17 @@ export class ProductsService {
   }
 
   async processProductBatch(productIds: number[]): Promise<{ success: boolean; processed: number }> {
-    let processed = 0;
-    
     try {
-      for (const id of productIds) {
-        try {
-          const product = await this.findOne(id);
-          product.updatedAt = new Date();
-          await this.productsRepository.save(product);
-          processed++;
-        } catch (error) {
-          console.log('Error processing product');
-        }
-      }
+      const result = await this.productsRepository
+        .createQueryBuilder()
+        .update(Product)
+        .set({ updatedAt: new Date() })
+        .whereInIds(productIds)
+        .execute();
+
+      return { success: true, processed: result.affected || 0 };
     } catch (error) {
       throw new BadRequestException('Batch processing failed');
     }
-
-    return { success: true, processed };
   }
 }
