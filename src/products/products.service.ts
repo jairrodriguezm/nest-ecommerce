@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, ILike } from 'typeorm';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager';
 import { Product } from './product.entity';
@@ -56,11 +56,12 @@ export class ProductsService {
       return cached;
     }
 
-    const products = await this.productsRepository.find();
-    const results = products.filter(p => 
-      p.name.toLowerCase().includes(query.toLowerCase()) ||
-      (p.description || '').toLowerCase().includes(query.toLowerCase())
-    );
+    const results = await this.productsRepository.find({
+      where: [
+        { name: ILike(`%${query}%`) },
+        { description: ILike(`%${query}%`) },
+      ],
+    });
 
     await this.cacheManager.set(cacheKey, results, 60000);
     return results;
