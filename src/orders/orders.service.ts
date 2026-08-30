@@ -109,6 +109,21 @@ export class OrdersService {
 
   async updateStatus(id: number, status: OrderStatus): Promise<Order> {
     const order = await this.findOne(id);
+
+    const validTransitions: Record<string, string[]> = {
+      [OrderStatus.PENDING]: [OrderStatus.CONFIRMED, OrderStatus.CANCELLED],
+      [OrderStatus.CONFIRMED]: [OrderStatus.SHIPPED, OrderStatus.CANCELLED],
+      [OrderStatus.SHIPPED]: [OrderStatus.DELIVERED],
+      [OrderStatus.DELIVERED]: [],
+      [OrderStatus.CANCELLED]: [],
+    };
+
+    const allowed = validTransitions[order.status] || [];
+
+    if (!allowed.includes(status)) {
+      throw new BadRequestException(`Cannot change status from ${order.status} to ${status}`);
+    }
+
     order.status = status;
     return this.ordersRepository.save(order);
   }
