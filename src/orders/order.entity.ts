@@ -28,7 +28,7 @@ export class Order {
   @Column({ name: 'user_id' })
   userId: number;
 
-  @OneToMany(() => OrderItem, (item) => item.order, { cascade: true, eager: true })
+  @OneToMany(() => OrderItem, (item) => item.order, { cascade: true })
   items: OrderItem[];
 
   @CreateDateColumn()
