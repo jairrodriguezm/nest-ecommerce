@@ -10,6 +10,76 @@ This application uses:
 - **Redis** - Caching layer
 - **TypeORM** - Database ORM
 
+### System Architecture Diagram
+
+```mermaid
+flowchart TB
+    subgraph ClientLayer["Clients / Consumers"]
+        Client["HTTP Client / Frontend / Postman"]
+    end
+
+    subgraph AppLayer["NestJS Application (API Layer)"]
+        Main["main.ts (ValidationPipe, Global Filters)"]
+        AppModule["AppModule"]
+
+        subgraph Modules["Feature Modules"]
+            subgraph UsersModule["Users Module"]
+                UC["UsersController"] --> US["UsersService"]
+            end
+
+            subgraph ProductsModule["Products Module"]
+                PC["ProductsController"] --> PS["ProductsService"]
+            end
+
+            subgraph OrdersModule["Orders Module"]
+                OC["OrdersController"] --> OS["OrdersService"]
+            end
+        end
+
+        OS -.->|Stock Verification / Update| PS
+    end
+
+    subgraph DataLayer["Data & Persistence Layer"]
+        subgraph TypeORM["TypeORM ORM Engine"]
+            UserEnt[("User Entity")]
+            ProdEnt[("Product Entity")]
+            CatEnt[("Category Entity")]
+            OrderEnt[("Order Entity")]
+            ItemEnt[("OrderItem Entity")]
+        end
+
+        subgraph Storage["Storage & Caching Infra (Docker)"]
+            PG[("PostgreSQL 17\n(Primary Relational DB)")]
+            Redis[("Redis 7\n(Cache Store / TTL)")]
+        end
+    end
+
+    %% Client traffic
+    Client -->|HTTP REST Requests :3000| Main
+    Main --> AppModule
+    AppModule --> UsersModule
+    AppModule --> ProductsModule
+    AppModule --> OrdersModule
+
+    %% Services to ORM Entities
+    US --> UserEnt
+    PS --> ProdEnt
+    PS --> CatEnt
+    OS --> OrderEnt
+    OS --> ItemEnt
+
+    %% Entities/Services to Infrastructure
+    UserEnt -->|Read / Write| PG
+    ProdEnt -->|Read / Write| PG
+    CatEnt -->|Read / Write| PG
+    OrderEnt -->|Transactions / Read / Write| PG
+    ItemEnt -->|Read / Write| PG
+
+    US <-->|Cache User Data| Redis
+    PS <-->|Cache Search Results| Redis
+    OS <-->|Cache Order Details| Redis
+```
+
 ## Bugs
 > 📋 **[View Bug Report](./BUGS.md)** — 23 identified bugs organized by priority
 
