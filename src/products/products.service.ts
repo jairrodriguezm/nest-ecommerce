@@ -35,7 +35,9 @@ export class ProductsService {
 
   async create(createProductDto: CreateProductDto): Promise<Product> {
     const product = this.productsRepository.create(createProductDto);
-    return this.productsRepository.save(product);
+    const saved = await this.productsRepository.save(product);
+    await this.cacheManager.clear(); 
+    return saved;
   }
 
   async updateStock(id: number, quantity: number): Promise<Product> {
@@ -47,6 +49,7 @@ export class ProductsService {
   async remove(id: number): Promise<void> {
     const product = await this.findOne(id);
     await this.productsRepository.remove(product);
+    await this.cacheManager.clear();
   }
 
   async searchProducts(query: string): Promise<Product[]> {
