@@ -77,6 +77,7 @@ export class OrdersService {
       for (const itemDto of createOrderDto.items) {
         const product = await manager.findOne(Product, {
           where: { id: itemDto.productId },
+          lock: { mode: 'pessimistic_write' },
         });
 
         if (!product) {

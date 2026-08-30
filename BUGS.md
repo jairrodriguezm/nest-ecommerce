@@ -52,3 +52,5 @@ Comprehensive list of bugs identified in the microservice, organized by priority
 | 21 | `CACHE_MANAGER` injected in orders service but never used in any method | `orders/orders.service.ts` | Cache mismatch |
 | 22 | `updateStatus` accepts any status value without validating state machine transitions — an order can go from `DELIVERED` back to `PENDING` | `orders/orders.service.ts` | Data inconsistent |
 | 23 | `processPayment` does not check current order status — an already paid or cancelled order can be charged again | `orders/orders.service.ts` | Data inconsistent |
+| 24 | `findAll` in orders controller does not validate `userId` query param — `parseInt('abc')` returns `NaN` causing unexpected DB behavior | `orders/orders.controller.ts` | Data inconsistent |
+| 25 | `updateStatus` endpoint accepts raw `@Body('status')` without DTO or `@IsEnum()` validation — invalid status values pass through to the service | `orders/orders.controller.ts` | Data inconsistent |
