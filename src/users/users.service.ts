@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, Inject } from '@nestjs/common';
+import { Injectable, NotFoundException, Inject, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
@@ -44,10 +44,17 @@ export class UsersService {
   }
 
   async create(createUserDto: CreateUserDto): Promise<User> {
-    const user = this.usersRepository.create(createUserDto);
-    const saved = await this.usersRepository.save(user);
-    await this.cacheManager.del('users:all');
-    return saved;
+    try {
+      const user = this.usersRepository.create(createUserDto);
+      const saved = await this.usersRepository.save(user);
+      await this.cacheManager.del('users:all');
+      return saved;
+    } catch (error) {
+      if (error.code === '23505') { // unique violation error code for PostgreSQL
+        throw new ConflictException('Email already exists');
+      }
+      throw error;
+    }
   }
 
   async remove(id: number): Promise<void> {
