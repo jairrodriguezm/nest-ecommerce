@@ -1,7 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
-import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager';
 import { Order, OrderStatus } from './order.entity';
 import { OrderItem } from './order-item.entity';
@@ -34,8 +33,6 @@ export class OrdersService {
     private usersService: UsersService,
     private productsService: ProductsService,
     private dataSource: DataSource,
-    @Inject(CACHE_MANAGER)
-    private cacheManager: Cache,
   ) {}
 
   async findAll(): Promise<Order[]> {
