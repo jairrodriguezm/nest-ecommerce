@@ -24,25 +24,23 @@ flowchart TB
         Main["main.ts (ValidationPipe, Global Filters)"]
         AppModule["AppModule"]
 
-        subgraph Modules["Feature Modules"]
-            subgraph UsersModule["Users Module"]
-                UC["UsersController"] --> US["UsersService"]
-            end
+        subgraph UsersModule["Users Module"]
+            UC["UsersController"] --> US["UsersService"]
+        end
 
-            subgraph ProductsModule["Products Module"]
-                PC["ProductsController"] --> PS["ProductsService"]
-            end
+        subgraph ProductsModule["Products Module"]
+            PC["ProductsController"] --> PS["ProductsService"]
+        end
 
-            subgraph OrdersModule["Orders Module"]
-                OC["OrdersController"] --> OS["OrdersService"]
-            end
+        subgraph OrdersModule["Orders Module"]
+            OC["OrdersController"] --> OS["OrdersService"]
         end
 
         OS -.->|Stock Verification / Update| PS
     end
 
     subgraph DataLayer["Data & Persistence Layer"]
-        subgraph TypeORM["TypeORM ORM Engine"]
+        subgraph Entities["TypeORM Entities"]
             UserEnt[("User Entity")]
             ProdEnt[("Product Entity")]
             CatEnt[("Category Entity")]
@@ -50,18 +48,18 @@ flowchart TB
             ItemEnt[("OrderItem Entity")]
         end
 
-        subgraph Storage["Storage & Caching Infra (Docker)"]
-            PG[("PostgreSQL 17\n(Primary Relational DB)")]
-            Redis[("Redis 7\n(Cache Store / TTL)")]
+        subgraph Storage["Infrastructure (Docker)"]
+            PG[("PostgreSQL 17<br/>Primary Relational DB")]
+            Redis[("Redis 7<br/>Cache Store / TTL")]
         end
     end
 
     %% Client traffic
     Client -->|HTTP REST Requests :3000| Main
     Main --> AppModule
-    AppModule --> UsersModule
-    AppModule --> ProductsModule
-    AppModule --> OrdersModule
+    AppModule --> UC
+    AppModule --> PC
+    AppModule --> OC
 
     %% Services to ORM Entities
     US --> UserEnt
@@ -70,16 +68,17 @@ flowchart TB
     OS --> OrderEnt
     OS --> ItemEnt
 
-    %% Entities/Services to Infrastructure
+    %% Entities to DB
     UserEnt -->|Read / Write| PG
     ProdEnt -->|Read / Write| PG
     CatEnt -->|Read / Write| PG
-    OrderEnt -->|Transactions / Read / Write| PG
+    OrderEnt -->|Transactions| PG
     ItemEnt -->|Read / Write| PG
 
-    US <-->|Cache User Data| Redis
-    PS <-->|Cache Search Results| Redis
-    OS <-->|Cache Order Details| Redis
+    %% Cache connections
+    US -->|Cache User Data| Redis
+    PS -->|Cache Search Results| Redis
+    OS -->|Cache Order Details| Redis
 ```
 
 ## Diagnosis
