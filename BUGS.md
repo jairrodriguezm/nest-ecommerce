@@ -2,55 +2,57 @@
 
 Comprehensive list of bugs identified in the microservice, organized by priority level.
 
+> 📋 For the fix applied to each bug, see **[FIXES.md](./FIXES.md)**.
+
 ---
 
 ## 🔴 Critical (Crashes or infinite requests)
 
-| # | Bug | File | Symptom |
-|---|-----|------|---------|
-| 1 | Infinite recursion in `buildCategoryTree` — traverses both parent and children creating a cycle that causes stack overflow | `products/products.service.ts` | Requests never complete |
-| 2 | `maxRetries` set to `1000` in payment processing — with 100ms delay per retry, a failing payment hangs for up to 100 seconds | `orders/orders.service.ts` | Requests extremely slow |
-| 3 | Circular reference in `getOrderWithFullDetails` — assigns `enriched.user.latestOrder = enriched` then calls `JSON.stringify()`, which always throws `TypeError` | `orders/orders.service.ts` | 500 error on every call |
-| 4 | Redis store configured without connection timeouts — if Redis goes down, all cache calls queue indefinitely and hang HTTP requests | `app.module.ts` | Requests never complete |
+| # | Bug | File | Symptom | Root Cause |
+|---|-----|------|---------|------------|
+| 1 | Infinite recursion in `buildCategoryTree` — traverses both parent and children creating a cycle that causes stack overflow | `products/products.service.ts` | Requests never complete | The recursive function followed both the `parent` back-reference and the `children` forward-reference. Because TypeORM eager-loads `parent` on every `Category` node, each child already holds a reference back to its parent, creating an object graph cycle that the recursion followed forever, exhausting the call stack. |
+| 2 | `maxRetries` set to `1000` in payment processing — with 100ms delay per retry, a failing payment hangs for up to 100 seconds | `orders/orders.service.ts` | Requests extremely slow | The class field `private maxRetries = 1000` was used as the loop upper bound in `processPayment`. Each failed attempt slept for an additional 100 ms in the `catch` block, making a worst-case total wait of 1,000 × 100 ms = 100 s before the request could error out. |
+| 3 | Circular reference in `getOrderWithFullDetails` — assigns `enriched.user.latestOrder = enriched` then calls `JSON.stringify()`, which always throws `TypeError` | `orders/orders.service.ts` | 500 error on every call | A self-referential object (`enriched.user.latestOrder = enriched`) was created and then passed to `JSON.stringify`, which cannot serialize circular structures and always throws `TypeError: Converting circular structure to JSON`. NestJS's serialization layer hit the same error before the response could be sent. |
+| 4 | Redis store configured without connection timeouts — if Redis goes down, all cache calls queue indefinitely and hang HTTP requests | `app.module.ts` | Requests never complete | The `redisStore` options did not set `commandTimeout`, `maxRetriesPerRequest`, or `enableOfflineQueue`. When Redis became unreachable, `ioredis` buffered every pending command in its offline queue indefinitely, so every cache operation awaited forever and the HTTP handler never resolved. |
 
 ---
 
 ## 🟠 High (Data corruption or intermittent errors)
 
-| # | Bug | File | Symptom |
-|---|-----|------|---------|
-| 5 | Missing `await` on `updateStock()` call during order creation — stock updates fail silently | `orders/orders.service.ts` | Data inconsistent |
-| 6 | No database transaction wrapping order creation — if the process fails midway, partial data remains in the database | `orders/orders.service.ts` | Data inconsistent |
-| 7 | `usersRepository.remove()` receives a plain cached object instead of a TypeORM entity — fails intermittently depending on cache state | `users/users.service.ts` | Intermittent errors |
-| 8 | No cascade delete policy on User→Orders relationship — deleting a user with orders throws a foreign key constraint error | `orders/order.entity.ts` | Intermittent errors |
-| 9 | Race condition in stock updates — stock is calculated in application memory, so concurrent orders can read the same value and lose a deduction | `orders/orders.service.ts` | Data inconsistent |
-| 10 | `ValidationPipe` missing `whitelist: true` — clients can inject restricted fields like `id`, `isActive`, or `createdAt` in request bodies | `main.ts` | Data inconsistent |
+| # | Bug | File | Symptom | Root Cause |
+|---|-----|------|---------|------------|
+| 5 | Missing `await` on `updateStock()` call during order creation — stock updates fail silently | `orders/orders.service.ts` | Data inconsistent | The call `this.productsService.updateStock(...)` returned a `Promise` that was never awaited. Node.js scheduled the stock-update query but the function returned immediately, so the HTTP response was sent before the database write completed. Any subsequent error in that write was also silently lost. |
+| 6 | No database transaction wrapping order creation — if the process fails midway, partial data remains in the database | `orders/orders.service.ts` | Data inconsistent | Order rows and `OrderItem` rows were inserted with separate, independent `save()` calls. If the process threw after saving the `Order` but before saving all items (e.g. a product not found), the orphan `Order` row remained committed in the database with no items and no way to roll back. |
+| 7 | `usersRepository.remove()` receives a plain cached object instead of a TypeORM entity — fails intermittently depending on cache state | `users/users.service.ts` | Intermittent errors | `findOne` returned the raw JSON object deserialized from Redis, which is a plain `Object` and not a TypeORM-tracked entity instance. `Repository.remove()` requires a managed entity; passing a plain object caused TypeORM to fail to identify the row to delete, producing an error only when the cache was populated. |
+| 8 | No cascade delete policy on User→Orders relationship — deleting a user with orders throws a foreign key constraint error | `orders/order.entity.ts` | Intermittent errors | The `@ManyToOne` decorator on the `Order.user` relation did not specify `onDelete`. PostgreSQL enforced the default `RESTRICT` referential action, so any `DELETE` on a `users` row that still had child `orders` rows was rejected with a foreign-key violation. |
+| 9 | Race condition in stock updates — stock is calculated in application memory, so concurrent orders can read the same value and lose a deduction | `orders/orders.service.ts` | Data inconsistent | The service read `product.stock` from the database, subtracted the quantity in Node.js memory, then wrote the result back. Two concurrent requests could both read the same initial stock value, compute overlapping results, and both write back — one silently overwriting the other's deduction, causing more items to be "sold" than actually available. |
+| 10 | `ValidationPipe` missing `whitelist: true` — clients can inject restricted fields like `id`, `isActive`, or `createdAt` in request bodies | `main.ts` | Data inconsistent | Without `whitelist: true`, NestJS's `ValidationPipe` passed all properties in the request body through to the DTO, including fields not declared in it. Attackers could include `id` or `isActive` in a `POST /users` body and have TypeORM persist those values directly, bypassing access controls. |
 
 ---
 
 ## 🟡 Medium (Performance and cache issues)
 
-| # | Bug | File | Symptom |
-|---|-----|------|---------|
-| 11 | Static cache key `'product-search'` in `searchProducts` — all different search queries return the same cached result | `products/products.service.ts` | Cache mismatch |
-| 12 | Search loads entire products table into memory and filters with JavaScript `.filter()` instead of querying the database | `products/products.service.ts` | Requests extremely slow |
-| 13 | No cache invalidation when products are created, updated, or deleted — users see stale data until TTL expires | `products/products.service.ts` | Cache mismatch |
-| 14 | Batch processing uses sequential `findOne` + `save` in a loop (N+1 pattern) | `products/products.service.ts` | Requests slow |
-| 15 | Order creation performs individual `findOne` + `save` + `updateStock` queries per item in a loop (~3N queries) | `orders/orders.service.ts` | Requests slow |
-| 16 | `eager: true` on Order entity relations (`user`, `items`) while the service also requests them explicitly — causes redundant queries | `orders/order.entity.ts` | Requests slow |
-| 17 | `eager: true` on OrderItem→Product relation — same redundancy issue | `orders/order-item.entity.ts` | Requests slow |
+| # | Bug | File | Symptom | Root Cause |
+|---|-----|------|---------|------------|
+| 11 | Static cache key `'product-search'` in `searchProducts` — all different search queries return the same cached result | `products/products.service.ts` | Cache mismatch | The cache key was the hard-coded string `'product-search'` regardless of the `query` parameter. The first search term executed populated that key; every subsequent search, regardless of its term, received the first result set from the cache. |
+| 12 | Search loads entire products table into memory and filters with JavaScript `.filter()` instead of querying the database | `products/products.service.ts` | Requests extremely slow | `this.productsRepository.find()` was called with no `where` clause, fetching every product row. The JavaScript `.filter()` call then iterated all of them in the Node.js process. With large catalogs this saturated memory and CPU while the database sat idle, and every call hit the DB regardless of caching. |
+| 13 | No cache invalidation when products are created, updated, or deleted — users see stale data until TTL expires | `products/products.service.ts` | Cache mismatch | `create()` and `remove()` did not call `cacheManager.del()` or `cacheManager.clear()` after mutating the database. Any `product-search:*` key cached before the mutation continued to be served for up to 60 seconds, returning results that did not reflect the change. |
+| 14 | Batch processing uses sequential `findOne` + `save` in a loop (N+1 pattern) | `products/products.service.ts` | Requests slow | For each product ID in the batch, the service issued two round-trips to the database: one `SELECT` via `findOne` and one `UPDATE` via `save`. With N products, this produced 2N sequential database round-trips instead of a single bulk `UPDATE`. |
+| 15 | Order creation performs individual `findOne` + `save` + `updateStock` queries per item in a loop (~3N queries) | `orders/orders.service.ts` | Requests slow | Inside the loop over `createOrderDto.items`, each iteration called `findOne(Product)`, `save(OrderItem)`, and `save(Product)` independently. For N line items this generated approximately 3N sequential database calls, which scaled poorly and accumulated transaction overhead for every item. |
+| 16 | `eager: true` on Order entity relations (`user`, `items`) while the service also requests them explicitly — causes redundant queries | `orders/order.entity.ts` | Requests slow | TypeORM's `eager: true` flag instructs the ORM to JOIN and load the relation automatically on every `find*` call. Because every service method already listed those relations explicitly in the `relations` option, TypeORM executed each JOIN twice — once from the eager setting and once from the explicit option — doubling the join work per query. |
+| 17 | `eager: true` on OrderItem→Product relation — same redundancy issue | `orders/order-item.entity.ts` | Requests slow | Same mechanism as bug #16: `eager: true` on the `Product` relation of `OrderItem` caused TypeORM to load the product automatically, while callers also specified `'items.product'` explicitly, resulting in duplicate JOINs for every order query that included items. |
 
 ---
 
 ## 🟢 Low (Robustness improvements)
 
-| # | Bug | File | Symptom |
-|---|-----|------|---------|
-| 18 | Unique constraint violation on user email throws generic 500 instead of 409 Conflict | `users/users.service.ts` | Vague error messages |
-| 19 | Cached objects lose `Date` types after Redis serialization — `createdAt` returns as string instead of `Date` | `users/users.service.ts` | Cache mismatch |
-| 20 | Errors swallowed in `processProductBatch` — individual failures logged with `console.log` and outer catch throws generic `BadRequestException` | `products/products.service.ts` | Vague error messages |
-| 21 | `CACHE_MANAGER` injected in orders service but never used in any method | `orders/orders.service.ts` | Cache mismatch |
-| 22 | `updateStatus` accepts any status value without validating state machine transitions — an order can go from `DELIVERED` back to `PENDING` | `orders/orders.service.ts` | Data inconsistent |
-| 23 | `processPayment` does not check current order status — an already paid or cancelled order can be charged again | `orders/orders.service.ts` | Data inconsistent |
-| 24 | `findAll` in orders controller does not validate `userId` query param — `parseInt('abc')` returns `NaN` causing unexpected DB behavior | `orders/orders.controller.ts` | Data inconsistent |
-| 25 | `updateStatus` endpoint accepts raw `@Body('status')` without DTO or `@IsEnum()` validation — invalid status values pass through to the service | `orders/orders.controller.ts` | Data inconsistent |
+| # | Bug | File | Symptom | Root Cause |
+|---|-----|------|---------|------------|
+| 18 | Unique constraint violation on user email throws generic 500 instead of 409 Conflict | `users/users.service.ts` | Vague error messages | The `save()` call was not wrapped in a `try/catch` that inspected the database error code. PostgreSQL raises error code `23505` for unique-constraint violations, but without that check the raw `QueryFailedError` propagated up and NestJS's default handler returned a 500 Internal Server Error. |
+| 19 | Cached objects lose `Date` types after Redis serialization — `createdAt` returns as string instead of `Date` | `users/users.service.ts` | Cache mismatch | Redis stores values as UTF-8 strings. When an object is serialized to JSON via `JSON.stringify`, `Date` instances become ISO 8601 strings (e.g. `"2024-01-01T00:00:00.000Z"`). On deserialization, `JSON.parse` has no type hint and reconstructs them as plain strings, so `user.createdAt` changes type between a DB hit and a cache hit. |
+| 20 | Errors swallowed in `processProductBatch` — individual failures logged with `console.log` and outer catch throws generic `BadRequestException` | `products/products.service.ts` | Vague error messages | The inner `catch` used `console.log('Error processing product')` with no product ID and no error details. The outer `catch` re-threw a generic `BadRequestException('Batch processing failed')` with no indication of which IDs failed or why, making debugging impossible for callers. |
+| 21 | `CACHE_MANAGER` injected in orders service but never used in any method | `orders/orders.service.ts` | Cache mismatch | The `CACHE_MANAGER` token was declared in the constructor with `@Inject(CACHE_MANAGER)`, which caused the DI container to resolve and wire the Redis store, but no method in `OrdersService` ever called `get`, `set`, or `del` on it. Order queries were never cached, making the injection dead code. |
+| 22 | `updateStatus` accepts any status value without validating state machine transitions — an order can go from `DELIVERED` back to `PENDING` | `orders/orders.service.ts` | Data inconsistent | `updateStatus` loaded the order and set `order.status = status` unconditionally. There was no lookup table or guard that checked whether the requested transition (e.g. `DELIVERED → PENDING`) was a valid state-machine step, so any transition was accepted and persisted. |
+| 23 | `processPayment` does not check current order status — an already paid or cancelled order can be charged again | `orders/orders.service.ts` | Data inconsistent | Before calling the external payment provider, the service did not assert that `order.status === OrderStatus.PENDING`. A `CONFIRMED` or `CANCELLED` order could therefore be submitted to `paymentService.processPayment` again, potentially resulting in a double charge or resurrecting a cancelled order. |
+| 24 | `findAll` in orders controller does not validate `userId` query param — `parseInt('abc')` returns `NaN` causing unexpected DB behavior | `orders/orders.controller.ts` | Data inconsistent | The controller read `userId` as a raw `string` query parameter and called `parseInt(userId, 10)` without checking the result. `parseInt` returns `NaN` for non-numeric strings; passing `NaN` to the repository `where` clause caused TypeORM to generate a malformed SQL predicate (`WHERE user_id = NaN`) whose behavior is database-specific and undefined. |
+| 25 | `updateStatus` endpoint accepts raw `@Body('status')` without DTO or `@IsEnum()` validation — invalid status values pass through to the service | `orders/orders.controller.ts` | Data inconsistent | The endpoint used `@Body('status') status: OrderStatus` directly. Because there was no DTO class with an `@IsEnum(OrderStatus)` decorator, `ValidationPipe` had no metadata to validate against and let any string through. The service then persisted the arbitrary value in the `status` column. |
