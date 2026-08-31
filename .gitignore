@@ -31,3 +31,7 @@ coverage/
 
 # Database
 *.sqlite
+
+# Media
+*.mp4
+challenge-video.mp4

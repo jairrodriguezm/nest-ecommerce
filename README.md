@@ -2,6 +2,8 @@
 
 A multi-service e-commerce API built with NestJS, PostgreSQL, and Redis.
 
+> 🎥 **[Ver video explicativo del reto](./challenge-video.mp4)**
+
 ## Architecture
 
 This application uses:
