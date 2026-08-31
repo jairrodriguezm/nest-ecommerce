@@ -80,8 +80,11 @@ flowchart TB
     OS <-->|Cache Order Details| Redis
 ```
 
+## Diagnosis
+> 📋 **[View Diagnosis Report](./DIAGNOSIS.md)**
+
 ## Bugs
-> 📋 **[View Bug Report](./BUGS.md)** — 23 identified bugs organized by priority
+> 📋 **[View Bug Report](./BUGS.md)** — 25 identified bugs organized by priority
 
 ## Setup
 
